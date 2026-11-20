@@ -26,22 +26,35 @@ async fn main() -> io::Result<()> {
         while let Ok((agent_role, agent_event)) = rx.try_recv() {
             match agent_role {
                 AgentRole::Coder => {
-                    if matches!(agent_event, AgentEvent::Completed) {
-                        if matches!(app.reviewer.state, AgentState::Running) {
-                            continue;
-                        }
+                    let coder_completed = matches!(&agent_event, AgentEvent::Completed);
+                    app.coder.handle_event(agent_event);
 
-                        let prompt = "Review the latest git diff";
+                    if coder_completed && !matches!(app.reviewer.state, AgentState::Running) {
                         let thread_id = app.reviewer.thread_id.clone();
                         let agent_tx = tx.clone();
+
+                        let mut review_prompt = format!("
+                            Review the current Git diff.\n
+                            Report bugs and cite file paths and lines when possible.
+                            ");
+                        match &app.previous_input {
+                            Some(previous_input) => {
+                                review_prompt = format!("
+                                    {review_prompt}\n\n
+                                    Previous Prompt: {previous_input}
+                                    ");
+                            }
+                            None => {
+                                continue;
+                            }
+                        }
 
                         app.reviewer.state = AgentState::Running;
 
                         tokio::spawn(async move {
-                            agent::run_agent(agent_tx, AgentRole::Reviewer, prompt.to_string(), thread_id).await;
+                            agent::run_agent(agent_tx, AgentRole::Reviewer, review_prompt.to_string(), thread_id).await;
                         });
                     }
-                    app.coder.handle_event(agent_event);
                 }
 
                 AgentRole::Reviewer => {
@@ -89,6 +102,7 @@ async fn main() -> io::Result<()> {
                                     let thread_id = app.coder.thread_id.clone();
                                     let agent_tx = tx.clone();
 
+                                    app.previous_input = Some(prompt.clone());
                                     app.coder.state = AgentState::Running;
 
                                     tokio::spawn(async move {

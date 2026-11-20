@@ -83,6 +83,7 @@ pub struct App {
     pub coder: AgentSession,
     pub reviewer: AgentSession,
     pub input: String,
+    pub previous_input: Option<String>
 }
 
 impl App {
@@ -90,7 +91,8 @@ impl App {
         Self {
             coder: AgentSession::new(),
             reviewer: AgentSession::new(),
-            input: "".to_string()
+            input: "".to_string(),
+            previous_input: None
         }
     }
 }
