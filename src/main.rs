@@ -1,4 +1,3 @@
-
 mod agent;
 mod event;
 mod ui;
@@ -8,12 +7,12 @@ use std::{io, time::Duration};
 use crossterm::event::{Event, KeyCode, KeyEventKind};
 use tokio::sync::mpsc;
 
-use crate::event::{AgentEvent, AgentState, App};
+use crate::event::{AgentEvent, AgentRole, AgentState, App};
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
     // Create the channel connecting agent.rs and main.rs.
-    let (tx, mut rx) = mpsc::channel::<AgentEvent>(100);
+    let (tx, mut rx) = mpsc::channel::<(AgentRole ,AgentEvent)>(100);
 
     // Create initial application state.
     let mut app = App::new();
@@ -24,8 +23,31 @@ async fn main() -> io::Result<()> {
     // Main application loop.
     let result = loop {
         // Process all currently available agent events.
-        while let Ok(agent_event) = rx.try_recv() {
-            app.handle_event(agent_event);
+        while let Ok((agent_role, agent_event)) = rx.try_recv() {
+            match agent_role {
+                AgentRole::Coder => {
+                    if matches!(agent_event, AgentEvent::Completed) {
+                        if matches!(app.reviewer.state, AgentState::Running) {
+                            continue;
+                        }
+
+                        let prompt = "Review the latest git diff";
+                        let thread_id = app.reviewer.thread_id.clone();
+                        let agent_tx = tx.clone();
+
+                        app.reviewer.state = AgentState::Running;
+
+                        tokio::spawn(async move {
+                            agent::run_agent(agent_tx, AgentRole::Reviewer, prompt.to_string(), thread_id).await;
+                        });
+                    }
+                    app.coder.handle_event(agent_event);
+                }
+
+                AgentRole::Reviewer => {
+                    app.reviewer.handle_event(agent_event);
+                }
+            }
         }
 
         // Render the current application state.
@@ -55,7 +77,7 @@ async fn main() -> io::Result<()> {
                                 }
 
                                 KeyCode::Enter => {
-                                    if matches!(app.state, AgentState::Running) {
+                                    if matches!(app.coder.state, AgentState::Running) {
                                         continue;
                                     }
 
@@ -64,11 +86,30 @@ async fn main() -> io::Result<()> {
                                     }
 
                                     let prompt = std::mem::take(&mut app.input);
-                                    let thread_id = app.thread_id.clone();
+                                    let thread_id = app.coder.thread_id.clone();
                                     let agent_tx = tx.clone();
 
+                                    app.coder.state = AgentState::Running;
+
                                     tokio::spawn(async move {
-                                        agent::run_agent(agent_tx, prompt, thread_id).await;
+                                        agent::run_agent(agent_tx, AgentRole::Coder, prompt, thread_id).await;
+                                    });
+                                }
+
+                                // Temporary branch. Manually let the user start a review
+                                KeyCode::F(2) => {
+                                    if matches!(app.reviewer.state, AgentState::Running) {
+                                        continue;
+                                    }
+
+                                    let prompt = "Review the latest git diff";
+                                    let thread_id = app.reviewer.thread_id.clone();
+                                    let agent_tx = tx.clone();
+
+                                    app.reviewer.state = AgentState::Running;
+
+                                    tokio::spawn(async move {
+                                        agent::run_agent(agent_tx, AgentRole::Reviewer, prompt.to_string(), thread_id).await;
                                     });
                                 }
 

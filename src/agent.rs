@@ -7,10 +7,11 @@ use tokio::{
     sync::mpsc::Sender,
 };
 
-use crate::event::AgentEvent;
+use crate::{event::AgentEvent, event::AgentRole};
 
 pub async fn run_agent(
-        tx: Sender<AgentEvent>,
+        tx: Sender<(AgentRole, AgentEvent)>,
+        role: AgentRole,
         prompt: String,
         thread_id: Option<String>
     ) {
@@ -20,13 +21,25 @@ pub async fn run_agent(
         "--json".to_string(),
         "--model".to_string(),
         "gpt-6.1-terra".to_string(), // use cheap agents for testing
-        "--sandbox".to_string(),
-        "read-only".to_string()
+        "--sandbox".to_string()
     ];
+
+    let mut agent_role_args: Vec<String> = vec![];
+    match role {
+        AgentRole::Coder => {
+            agent_role_args = vec!["workspace-write".to_string(), "--skip-git-repo-check".to_string()];
+        }
+
+        AgentRole::Reviewer => {
+            agent_role_args = vec!["read-only".to_string(), "--skip-git-repo-check".to_string()];
+        }
+    }
+    args.append(&mut agent_role_args);
 
     match thread_id {
         Some(id) => {
-            args.extend(["resume".to_string(), id, prompt]);
+            let mut resume_args = vec!["resume".to_string(), id, prompt];
+            args.append(&mut resume_args);
         }
 
         None => {
@@ -44,13 +57,13 @@ pub async fn run_agent(
         Ok(child) => child,
         Err(err) => {
             let _ = tx
-                .send(AgentEvent::Failed(err.to_string()))
+                .send((role, AgentEvent::Failed(err.to_string())))
                 .await;
             return;
         }
     };
 
-    let _ = tx.send(AgentEvent::Started).await;
+    let _ = tx.send((role, AgentEvent::Started)).await;
 
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
@@ -63,7 +76,7 @@ pub async fn run_agent(
 
         while let Ok(Some(line)) = lines.next_line().await {
             if err_tx
-                .send(AgentEvent::Activity(format!("stderr: {line}")))
+                .send((role, AgentEvent::Activity(format!("stderr: {line}"))))
                 .await
                 .is_err()
             {
@@ -85,14 +98,14 @@ pub async fn run_agent(
                 if json["type"] == "thread.started" {
                     if let Some(thread_id) = json["thread_id"].as_str() {
                         let _ = tx
-                            .send(AgentEvent::ThreadStarted(thread_id.to_string()))
+                            .send((role, AgentEvent::ThreadStarted(thread_id.to_string())))
                             .await;
                     }
                 }
 
                 let msg = describe_event(&json);
 
-                if tx.send(AgentEvent::Activity(msg)).await.is_err() {
+                if tx.send((role, AgentEvent::Activity(msg))).await.is_err() {
                     break;
                 }
             }
@@ -101,7 +114,7 @@ pub async fn run_agent(
 
             Err(err) => {
                 let _ = tx
-                    .send(AgentEvent::Failed(err.to_string()))
+                    .send((role, AgentEvent::Failed(err.to_string())))
                     .await;
                 return;
             }
@@ -113,18 +126,18 @@ pub async fn run_agent(
 
     match result {
         Ok(status) if status.success() => {
-            let _ = tx.send(AgentEvent::Completed).await;
+            let _ = tx.send((role, AgentEvent::Completed)).await;
         }
 
         Ok(status) => {
             let _ = tx
-                .send(AgentEvent::Failed(format!("Codex exited with status: {status}")))
+                .send((role, AgentEvent::Failed(format!("Codex exited with status: {status}"))))
                 .await;
         }
 
         Err(err) => {
             let _ = tx
-                .send(AgentEvent::Failed(err.to_string()))
+                .send((role, AgentEvent::Failed(err.to_string())))
                 .await;
         }
     }

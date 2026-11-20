@@ -18,20 +18,25 @@ pub enum AgentState {
     _Cancelled // unused for now
 }
 
-pub struct App {
+#[derive(Debug, Clone, Copy)]
+pub enum AgentRole {
+    Coder,
+    Reviewer,
+}
+
+#[derive(Debug, Clone)]
+pub struct AgentSession {
     pub state: AgentState,
     pub thread_id: Option<String>,
-    pub input: String,
     pub activity: String,
     pub logs: Vec<String>
 }
 
-impl App {
+impl AgentSession {
     pub fn new() -> Self {
         Self {
             state: AgentState::Idle,
             thread_id: None,
-            input: "".to_string(),
             activity: "Waiting for agent...".to_string(),
             logs: Vec::new()
         }
@@ -70,6 +75,22 @@ impl App {
         // keep track of the latest 100 logs
         if self.logs.len() > 100 {
             self.logs.remove(0);
+        }
+    }
+}
+
+pub struct App {
+    pub coder: AgentSession,
+    pub reviewer: AgentSession,
+    pub input: String,
+}
+
+impl App {
+    pub fn new() -> Self {
+        Self {
+            coder: AgentSession::new(),
+            reviewer: AgentSession::new(),
+            input: "".to_string()
         }
     }
 }
