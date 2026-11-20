@@ -1,4 +1,4 @@
-use std::{process::Stdio};
+use std::process::Stdio;
 
 use serde_json::{Value};
 use tokio::{
@@ -9,15 +9,33 @@ use tokio::{
 
 use crate::event::AgentEvent;
 
-pub async fn run_agent(tx: Sender<AgentEvent>) {
+pub async fn run_agent(
+        tx: Sender<AgentEvent>,
+        prompt: String,
+        thread_id: Option<String>
+    ) {
+
+    let mut args = vec![
+        "exec".to_string(),
+        "--json".to_string(),
+        "--model".to_string(),
+        "gpt-6.1-terra".to_string(), // use cheap agents for testing
+        "--sandbox".to_string(),
+        "read-only".to_string()
+    ];
+
+    match thread_id {
+        Some(id) => {
+            args.extend(["resume".to_string(), id, prompt]);
+        }
+
+        None => {
+            args.push(prompt);
+        }
+    }
+
     let mut child = match Command::new("codex")
-        .args([
-            "exec",
-            "--json",
-            "--sandbox",
-            "read-only",
-            "Inspect this repository and summarize its structure. Do not modify files.",
-        ])
+        .args(&args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true)
@@ -39,6 +57,7 @@ pub async fn run_agent(tx: Sender<AgentEvent>) {
 
     let err_tx = tx.clone();
 
+    // Spawn task to read for errors/warnings
     let stderr_task = tokio::spawn(async move {
         let mut lines = BufReader::new(stderr).lines();
 
@@ -55,12 +74,21 @@ pub async fn run_agent(tx: Sender<AgentEvent>) {
 
     let mut lines = BufReader::new(stdout).lines();
 
+    // Main loop to read codex output
     loop {
         match lines.next_line().await {
             Ok(Some(line)) => {
                 let Ok(json) = serde_json::from_str::<Value>(&line) else {
                     continue;
                 };
+
+                if json["type"] == "thread.started" {
+                    if let Some(thread_id) = json["thread_id"].as_str() {
+                        let _ = tx
+                            .send(AgentEvent::ThreadStarted(thread_id.to_string()))
+                            .await;
+                    }
+                }
 
                 let msg = describe_event(&json);
 
@@ -90,7 +118,7 @@ pub async fn run_agent(tx: Sender<AgentEvent>) {
 
         Ok(status) => {
             let _ = tx
-                .send(AgentEvent::Failed(format!("Codex exite with status: {status}")))
+                .send(AgentEvent::Failed(format!("Codex exited with status: {status}")))
                 .await;
         }
 
@@ -132,7 +160,7 @@ fn describe_event(json: &Value) -> String {
                 format!("{item_type}: {detail}")
             };
 
-            format!("{event_type} - {description}")
+            return format!("{event_type} - {description}");
         }
 
         "error" => {
@@ -140,7 +168,7 @@ fn describe_event(json: &Value) -> String {
                 .as_str()
                 .unwrap_or("Unknown error");
 
-            format!("Codex error: {message}")
+            return format!("Codex error: {message}");
         }
 
         _ => event_type.to_string(),

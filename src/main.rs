@@ -8,7 +8,7 @@ use std::{io, time::Duration};
 use crossterm::event::{Event, KeyCode, KeyEventKind};
 use tokio::sync::mpsc;
 
-use crate::event::{AgentEvent, App};
+use crate::event::{AgentEvent, AgentState, App};
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
@@ -17,9 +17,6 @@ async fn main() -> io::Result<()> {
 
     // Create initial application state.
     let mut app = App::new();
-
-    // Launch Codex in a separate Tokio task.
-    let agent_task = tokio::spawn(agent::run_agent(tx));
 
     // Initialize terminal interface.
     let mut terminal = ratatui::init();
@@ -43,11 +40,41 @@ async fn main() -> io::Result<()> {
             Ok(true) => {
                 match crossterm::event::read() {
                     Ok(Event::Key(key))
-                        if key.kind == KeyEventKind::Press
-                            && key.code == KeyCode::Char('q') =>
-                    {
-                        break Ok(());
-                    }
+                        if key.kind == KeyEventKind::Press => {
+                            match key.code {
+                                KeyCode::Esc => {
+                                    break Ok(());
+                                }
+
+                                KeyCode::Char(c) => {
+                                    app.input.push(c);
+                                }
+
+                                KeyCode::Backspace => {
+                                    app.input.pop();
+                                }
+
+                                KeyCode::Enter => {
+                                    if matches!(app.state, AgentState::Running) {
+                                        continue;
+                                    }
+
+                                    if app.input.trim().is_empty() {
+                                        continue;
+                                    }
+
+                                    let prompt = std::mem::take(&mut app.input);
+                                    let thread_id = app.thread_id.clone();
+                                    let agent_tx = tx.clone();
+
+                                    tokio::spawn(async move {
+                                        agent::run_agent(agent_tx, prompt, thread_id).await;
+                                    });
+                                }
+
+                                _ => {}
+                            }
+                        }
 
                     Ok(_) => {}
 
@@ -60,10 +87,6 @@ async fn main() -> io::Result<()> {
             Err(error) => break Err(error),
         }
     };
-
-    // Stop the agent task when the user exits.
-    agent_task.abort();
-    let _ = agent_task.await;
 
     // Restore the normal terminal.
     ratatui::restore();

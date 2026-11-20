@@ -4,7 +4,8 @@ pub enum AgentEvent {
     Started,
     Activity(String),
     Completed,
-    Failed(String)
+    Failed(String),
+    ThreadStarted(String)
 }
 
 /// Current state of the agent
@@ -19,6 +20,8 @@ pub enum AgentState {
 
 pub struct App {
     pub state: AgentState,
+    pub thread_id: Option<String>,
+    pub input: String,
     pub activity: String,
     pub logs: Vec<String>
 }
@@ -27,6 +30,8 @@ impl App {
     pub fn new() -> Self {
         Self {
             state: AgentState::Idle,
+            thread_id: None,
+            input: "".to_string(),
             activity: "Waiting for agent...".to_string(),
             logs: Vec::new()
         }
@@ -55,6 +60,11 @@ impl App {
                 self.state = AgentState::Failed;
                 self.activity = err.clone();
                 self.logs.push(format!("ERROR: {err}"));
+            }
+
+            AgentEvent::ThreadStarted(id) => {
+                self.state = AgentState::Running;
+                self.thread_id = Some(id);
             }
         }
         // keep track of the latest 100 logs
