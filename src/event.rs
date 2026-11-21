@@ -91,7 +91,8 @@ pub struct App {
     pub previous_input: Option<String>,
     pub latest_review: Option<String>,
     pub revision_count: u8,
-    pub baseline_git_commit: Option<String>
+    pub baseline_git_commit: Option<String>,
+    pub workflow_status: WorkflowStatus
 }
 
 impl App {
@@ -103,11 +104,22 @@ impl App {
             previous_input: None,
             latest_review: None,
             revision_count: 0,
-            baseline_git_commit: None
+            baseline_git_commit: None,
+            workflow_status: WorkflowStatus::Idle
         }
     }
 }
 
+pub enum WorkflowStatus {
+    Idle,
+    Running,
+    Revising,
+    Passed,
+    ChangesStillRequested,
+    NeedsManualAttention
+}
+
+// ========================= JSON structs =========================
 #[derive(Deserialize, Debug, Clone)]
 pub struct ReviewJson {
     pub verdict: String,

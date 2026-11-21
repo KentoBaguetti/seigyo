@@ -8,7 +8,7 @@ use std::{io, time::Duration};
 use crossterm::event::{Event, KeyCode, KeyEventKind};
 use tokio::sync::mpsc;
 
-use crate::event::{AgentEvent, AgentRole, AgentState, App, ReviewJson};
+use crate::event::{AgentEvent, AgentRole, AgentState, App, ReviewJson, WorkflowStatus};
 use crate::consts::{REVIEW_INSTRUCTIONS, CODER_REVIEW_INSTRUCTIONS, MAX_REVIEW_COUNT};
 
 #[tokio::main]
@@ -72,7 +72,11 @@ async fn main() -> io::Result<()> {
                         let verdict = review_json.verdict;
                         let findings = review_json.findings.trim();
 
-                        if verdict == "CHANGES_REQUESTED"
+                        app.workflow_status = WorkflowStatus::NeedsManualAttention;
+
+                        if verdict == "PASS" {
+                            app.workflow_status = WorkflowStatus::Passed;
+                        } else if verdict == "CHANGES_REQUESTED"
                             && matches!(app.coder.state, AgentState::Completed)
                             && app.revision_count < MAX_REVIEW_COUNT
                             && findings.len() > 0
@@ -88,10 +92,13 @@ async fn main() -> io::Result<()> {
                             app.coder.state = AgentState::Running;
                             app.revision_count += 1;
                             app.latest_review = None;
+                            app.workflow_status = WorkflowStatus::Revising;
 
                             tokio::spawn(async move {
                                 agent::run_agent(agent_tx, AgentRole::Coder, prompt.to_string(), Some(thread_id)).await;
                             });
+                        } else {
+                            app.workflow_status = WorkflowStatus::ChangesStillRequested;
                         }
                     }
 
@@ -146,6 +153,7 @@ async fn main() -> io::Result<()> {
                                     app.revision_count = 0;
                                     app.latest_review = None;
                                     app.baseline_git_commit = record_git_command_output(vec!["rev-parse".to_string(), "--verify".to_string(), "HEAD".to_string()]); // get the baseline git commit hash
+                                    app.workflow_status = WorkflowStatus::Running;
 
                                     tokio::spawn(async move {
                                         agent::run_agent(agent_tx, AgentRole::Coder, prompt, thread_id).await;
