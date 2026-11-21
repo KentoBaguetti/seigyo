@@ -4,7 +4,9 @@ pub const MAX_REVIEW_COUNT: u8 = 1;
 
 // =================================== AGENT PROMPT CONSANTS ===================================
 
-pub const REVIEW_INSTRUCTIONS: &str = r#"Review the current Git diff against the original coding request below.
+pub const REVIEW_INSTRUCTIONS: &str = r#"Review the changes against the original coding request below. The "Baseline git commit hash" is the starting commit for this task.
+
+Use `git diff <baseline> --` with the supplied hash to compare the current working tree against that starting commit. This includes changes in later commits as well as staged and unstaged tracked changes. Check `git ls-files --others --exclude-standard` for new untracked files relevant to the task and inspect those separately.
 
 Look for bugs, regressions, and missing requirements introduced by the changes. Skip style preferences. For each finding, explain what goes wrong, when it happens, and cite the file and line if you can verify them. Do not edit files.
 
@@ -20,8 +22,6 @@ Example passing response:
 {"verdict":"PASS","findings":""}
 
 Example response requesting changes:
-{"verdict":"CHANGES_REQUESTED","findings":"src/main.rs:32: A second review can start while the first is still running."}
-
-Original coding request:"#;
+{"verdict":"CHANGES_REQUESTED","findings":"src/main.rs:32: A second review can start while the first is still running."}"#;
 
 pub const CODER_REVIEW_INSTRUCTIONS: &str = "Address the applicable review findings below. Keep changes scoped to the original request, then run the relevant tests.\n\n";

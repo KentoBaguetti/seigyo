@@ -90,7 +90,8 @@ pub struct App {
     pub input: String,
     pub previous_input: Option<String>,
     pub latest_review: Option<String>,
-    pub revision_count: u8
+    pub revision_count: u8,
+    pub baseline_git_commit: Option<String>
 }
 
 impl App {
@@ -101,7 +102,8 @@ impl App {
             input: "".to_string(),
             previous_input: None,
             latest_review: None,
-            revision_count: 0
+            revision_count: 0,
+            baseline_git_commit: None
         }
     }
 }

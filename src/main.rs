@@ -36,17 +36,17 @@ async fn main() -> io::Result<()> {
                         let agent_tx = tx.clone();
 
                         let review_prompt;
-                        match &app.previous_input {
-                            Some(previous_input) => {
-                                review_prompt = format!("
-                                    {REVIEW_INSTRUCTIONS}\n\n
-                                    Previous Prompt: {previous_input}
-                                    ");
-                            }
-                            None => {
-                                continue;
-                            }
-                        }
+                        let (Some(previous_input), Some(baseline_git_commit)) = (
+                            app.previous_input.as_deref(),
+                            app.baseline_git_commit.as_deref()
+                        ) else {
+                            continue;
+                        };
+                        review_prompt = format!("
+                            {REVIEW_INSTRUCTIONS}\n\n
+                            Original coding request: {previous_input}\n\n
+                            Baseline git commit hash: {baseline_git_commit}
+                            ");
 
                         app.reviewer.state = AgentState::Running;
                         app.latest_review = None;
@@ -72,14 +72,17 @@ async fn main() -> io::Result<()> {
                         };
 
                         let verdict = review_json.verdict;
+                        let findings = review_json.findings.trim();
 
                         if verdict == "CHANGES_REQUESTED"
                             && matches!(app.coder.state, AgentState::Completed)
                             && app.revision_count < MAX_REVIEW_COUNT
+                            && findings.len() > 0
                             {
                             let agent_tx = tx.clone();
-                            let thread_id = app.coder.thread_id.clone();
-                            let findings = review_json.findings;
+                            let Some(thread_id) = app.coder.thread_id.clone() else {
+                                continue;
+                            };
                             let prompt = format!(
                                "{CODER_REVIEW_INSTRUCTIONS}{findings}"
                             );
@@ -89,7 +92,7 @@ async fn main() -> io::Result<()> {
                             app.latest_review = None;
 
                             tokio::spawn(async move {
-                                agent::run_agent(agent_tx, AgentRole::Coder, prompt.to_string(), thread_id).await;
+                                agent::run_agent(agent_tx, AgentRole::Coder, prompt.to_string(), Some(thread_id)).await;
                             });
                         }
                     }
@@ -143,6 +146,8 @@ async fn main() -> io::Result<()> {
                                     app.previous_input = Some(prompt.clone());
                                     app.coder.state = AgentState::Running;
                                     app.revision_count = 0;
+                                    app.latest_review = None;
+                                    app.baseline_git_commit = record_git_command_output(vec!["rev-parse".to_string(), "--verify".to_string(), "HEAD".to_string()]); // get the baseline git commit hash
 
                                     tokio::spawn(async move {
                                         agent::run_agent(agent_tx, AgentRole::Coder, prompt, thread_id).await;
@@ -211,4 +216,17 @@ async fn main() -> io::Result<()> {
 
 fn parse_review_json(raw_json: &str) -> Option<ReviewJson> {
     return serde_json::from_str(raw_json).ok();
+}
+
+fn record_git_command_output(git_args: Vec<String>) -> Option<String> {
+    let output = std::process::Command::new("git")
+        .args(git_args)
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    return Some(String::from_utf8_lossy(&output.stdout).trim().to_string());
 }
