@@ -36,12 +36,10 @@ async fn main() -> io::Result<()> {
                         let agent_tx = tx.clone();
 
                         let review_prompt;
-                        let (Some(previous_input), Some(baseline_git_commit)) = (
-                            app.previous_input.as_deref(),
-                            app.baseline_git_commit.as_deref()
-                        ) else {
+                        let Some(previous_input) = app.previous_input.as_deref() else {
                             continue;
                         };
+                        let baseline_git_commit = app.baseline_git_commit.as_deref().unwrap_or("Automatic review skipped: no Git starting commit.");
                         review_prompt = format!("
                             {REVIEW_INSTRUCTIONS}\n\n
                             Original coding request: {previous_input}\n\n
