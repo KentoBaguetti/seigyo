@@ -86,6 +86,7 @@ pub async fn run_agent(
     });
 
     let mut lines = BufReader::new(stdout).lines();
+    let mut latest_agent_message: Option<String> = None;
 
     // Main loop to read codex output
     loop {
@@ -101,6 +102,13 @@ pub async fn run_agent(
                             .send((role, AgentEvent::ThreadStarted(thread_id.to_string())))
                             .await;
                     }
+                }
+
+                if json["type"] == "item.completed"
+                    && json["item"]["type"] == "agent_message"
+                    && let Some(text) = json["item"]["text"].as_str()
+                {
+                    latest_agent_message = Some(text.to_owned());
                 }
 
                 let msg = describe_event(&json);
@@ -126,6 +134,10 @@ pub async fn run_agent(
 
     match result {
         Ok(status) if status.success() => {
+            if matches!(role, AgentRole::Reviewer) && let Some(review_message) = latest_agent_message {
+                let _ = tx.send((role, AgentEvent::ReviewReady(review_message))).await;
+            }
+
             let _ = tx.send((role, AgentEvent::Completed)).await;
         }
 
@@ -143,6 +155,7 @@ pub async fn run_agent(
     }
 }
 
+// Take the JSON line and return it as a string
 fn describe_event(json: &Value) -> String {
     let event_type = json["type"]
         .as_str()

@@ -5,7 +5,8 @@ pub enum AgentEvent {
     Activity(String),
     Completed,
     Failed(String),
-    ThreadStarted(String)
+    ThreadStarted(String),
+    ReviewReady(String)
 }
 
 /// Current state of the agent
@@ -71,6 +72,8 @@ impl AgentSession {
                 self.state = AgentState::Running;
                 self.thread_id = Some(id);
             }
+
+            AgentEvent::ReviewReady(_) => {}
         }
         // keep track of the latest 100 logs
         if self.logs.len() > 100 {
@@ -83,7 +86,8 @@ pub struct App {
     pub coder: AgentSession,
     pub reviewer: AgentSession,
     pub input: String,
-    pub previous_input: Option<String>
+    pub previous_input: Option<String>,
+    pub latest_review: Option<String>
 }
 
 impl App {
@@ -92,7 +96,8 @@ impl App {
             coder: AgentSession::new(),
             reviewer: AgentSession::new(),
             input: "".to_string(),
-            previous_input: None
+            previous_input: None,
+            latest_review: None
         }
     }
 }

@@ -1,6 +1,7 @@
 mod agent;
 mod event;
 mod ui;
+mod prompts;
 
 use std::{io, time::Duration};
 
@@ -8,6 +9,7 @@ use crossterm::event::{Event, KeyCode, KeyEventKind};
 use tokio::sync::mpsc;
 
 use crate::event::{AgentEvent, AgentRole, AgentState, App};
+use crate::prompts::{REVIEW_INSTRUCTIONS};
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
@@ -33,14 +35,11 @@ async fn main() -> io::Result<()> {
                         let thread_id = app.reviewer.thread_id.clone();
                         let agent_tx = tx.clone();
 
-                        let mut review_prompt = format!("
-                            Review the current Git diff.\n
-                            Report bugs and cite file paths and lines when possible.
-                            ");
+                        let review_prompt;
                         match &app.previous_input {
                             Some(previous_input) => {
                                 review_prompt = format!("
-                                    {review_prompt}\n\n
+                                    {REVIEW_INSTRUCTIONS}\n\n
                                     Previous Prompt: {previous_input}
                                     ");
                             }
@@ -50,6 +49,7 @@ async fn main() -> io::Result<()> {
                         }
 
                         app.reviewer.state = AgentState::Running;
+                        app.latest_review = Some(review_prompt.clone());
 
                         tokio::spawn(async move {
                             agent::run_agent(agent_tx, AgentRole::Reviewer, review_prompt.to_string(), thread_id).await;
@@ -57,8 +57,15 @@ async fn main() -> io::Result<()> {
                     }
                 }
 
-                AgentRole::Reviewer => {
-                    app.reviewer.handle_event(agent_event);
+                AgentRole::Reviewer => match agent_event {
+                    AgentEvent::ReviewReady(review_message) => {
+                        app.latest_review = None;
+                        app.latest_review = Some(review_message);
+                    }
+
+                    event => {
+                        app.reviewer.handle_event(event);
+                    }
                 }
             }
         }
@@ -124,6 +131,27 @@ async fn main() -> io::Result<()> {
 
                                     tokio::spawn(async move {
                                         agent::run_agent(agent_tx, AgentRole::Reviewer, prompt.to_string(), thread_id).await;
+                                    });
+                                }
+
+                                // temporary branch to send the reviewed message to the coder
+                                KeyCode::F(3) => {
+                                    if matches!(app.coder.state, AgentState::Running) || matches!(app.reviewer.state, AgentState::Running) {
+                                        continue;
+                                    }
+
+                                    let thread_id = app.coder.thread_id.clone();
+                                    let agent_tx = tx.clone();
+
+                                    let Some(review_message) = app.latest_review.take() else {
+                                        continue;
+                                    };
+
+                                    let prompt = format!("Address the applicable findings from this review:\n\n{review_message}");
+                                    app.coder.state = AgentState::Running;
+
+                                    tokio::spawn(async move {
+                                        agent::run_agent(agent_tx, AgentRole::Coder, prompt, thread_id).await;
                                     });
                                 }
 
