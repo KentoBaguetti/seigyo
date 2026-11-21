@@ -1,3 +1,5 @@
+use serde::Deserialize;
+
 /// Event
 #[derive(Debug, Clone)]
 pub enum AgentEvent {
@@ -87,7 +89,8 @@ pub struct App {
     pub reviewer: AgentSession,
     pub input: String,
     pub previous_input: Option<String>,
-    pub latest_review: Option<String>
+    pub latest_review: Option<String>,
+    pub revision_count: u8
 }
 
 impl App {
@@ -97,7 +100,14 @@ impl App {
             reviewer: AgentSession::new(),
             input: "".to_string(),
             previous_input: None,
-            latest_review: None
+            latest_review: None,
+            revision_count: 0
         }
     }
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct ReviewJson {
+    pub verdict: String,
+    pub findings: String
 }

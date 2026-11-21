@@ -1,3 +1,9 @@
+// =================================== NUMERICAL CONSTANTS ===================================
+
+pub const MAX_REVIEW_COUNT: u8 = 1;
+
+// =================================== AGENT PROMPT CONSANTS ===================================
+
 pub const REVIEW_INSTRUCTIONS: &str = r#"Review the current Git diff against the original coding request below.
 
 Look for bugs, regressions, and missing requirements introduced by the changes. Skip style preferences. For each finding, explain what goes wrong, when it happens, and cite the file and line if you can verify them. Do not edit files.
@@ -17,3 +23,5 @@ Example response requesting changes:
 {"verdict":"CHANGES_REQUESTED","findings":"src/main.rs:32: A second review can start while the first is still running."}
 
 Original coding request:"#;
+
+pub const CODER_REVIEW_INSTRUCTIONS: &str = "Address the applicable review findings below. Keep changes scoped to the original request, then run the relevant tests.\n\n";

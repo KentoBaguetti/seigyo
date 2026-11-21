@@ -1,15 +1,15 @@
 mod agent;
 mod event;
 mod ui;
-mod prompts;
+mod consts;
 
 use std::{io, time::Duration};
 
 use crossterm::event::{Event, KeyCode, KeyEventKind};
 use tokio::sync::mpsc;
 
-use crate::event::{AgentEvent, AgentRole, AgentState, App};
-use crate::prompts::{REVIEW_INSTRUCTIONS};
+use crate::event::{AgentEvent, AgentRole, AgentState, App, ReviewJson};
+use crate::consts::{REVIEW_INSTRUCTIONS, CODER_REVIEW_INSTRUCTIONS, MAX_REVIEW_COUNT};
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
@@ -49,7 +49,7 @@ async fn main() -> io::Result<()> {
                         }
 
                         app.reviewer.state = AgentState::Running;
-                        app.latest_review = Some(review_prompt.clone());
+                        app.latest_review = None;
 
                         tokio::spawn(async move {
                             agent::run_agent(agent_tx, AgentRole::Reviewer, review_prompt.to_string(), thread_id).await;
@@ -59,8 +59,39 @@ async fn main() -> io::Result<()> {
 
                 AgentRole::Reviewer => match agent_event {
                     AgentEvent::ReviewReady(review_message) => {
-                        app.latest_review = None;
                         app.latest_review = Some(review_message);
+                    }
+
+                    AgentEvent::Completed => {
+                        app.reviewer.handle_event(AgentEvent::Completed);
+                        let Some(latest_review) = &app.latest_review else {
+                            continue;
+                        };
+                        let Some(review_json) = parse_review_json(latest_review.as_str()) else {
+                            continue;
+                        };
+
+                        let verdict = review_json.verdict;
+
+                        if verdict == "CHANGES_REQUESTED"
+                            && matches!(app.coder.state, AgentState::Completed)
+                            && app.revision_count < MAX_REVIEW_COUNT
+                            {
+                            let agent_tx = tx.clone();
+                            let thread_id = app.coder.thread_id.clone();
+                            let findings = review_json.findings;
+                            let prompt = format!(
+                               "{CODER_REVIEW_INSTRUCTIONS}{findings}"
+                            );
+
+                            app.coder.state = AgentState::Running;
+                            app.revision_count += 1;
+                            app.latest_review = None;
+
+                            tokio::spawn(async move {
+                                agent::run_agent(agent_tx, AgentRole::Coder, prompt.to_string(), thread_id).await;
+                            });
+                        }
                     }
 
                     event => {
@@ -97,7 +128,7 @@ async fn main() -> io::Result<()> {
                                 }
 
                                 KeyCode::Enter => {
-                                    if matches!(app.coder.state, AgentState::Running) {
+                                    if matches!(app.coder.state, AgentState::Running) || matches!(app.reviewer.state, AgentState::Running) {
                                         continue;
                                     }
 
@@ -111,6 +142,7 @@ async fn main() -> io::Result<()> {
 
                                     app.previous_input = Some(prompt.clone());
                                     app.coder.state = AgentState::Running;
+                                    app.revision_count = 0;
 
                                     tokio::spawn(async move {
                                         agent::run_agent(agent_tx, AgentRole::Coder, prompt, thread_id).await;
@@ -175,4 +207,8 @@ async fn main() -> io::Result<()> {
     ratatui::restore();
 
     result
+}
+
+fn parse_review_json(raw_json: &str) -> Option<ReviewJson> {
+    return serde_json::from_str(raw_json).ok();
 }
