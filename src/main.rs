@@ -79,7 +79,7 @@ async fn main() -> io::Result<()> {
                         } else if verdict == "CHANGES_REQUESTED"
                             && matches!(app.coder.state, AgentState::Completed)
                             && app.revision_count < MAX_REVIEW_COUNT
-                            && findings.len() > 0
+                            && !findings.is_empty()
                             {
                             let agent_tx = tx.clone();
                             let Some(thread_id) = app.coder.thread_id.clone() else {
@@ -97,7 +97,10 @@ async fn main() -> io::Result<()> {
                             tokio::spawn(async move {
                                 agent::run_agent(agent_tx, AgentRole::Coder, prompt.to_string(), Some(thread_id)).await;
                             });
-                        } else {
+                        } else if verdict == "CHANGES_REQUESTED"
+                            && !findings.is_empty()
+                            && app.revision_count >= MAX_REVIEW_COUNT
+                        {
                             app.workflow_status = WorkflowStatus::ChangesStillRequested;
                         }
                     }
