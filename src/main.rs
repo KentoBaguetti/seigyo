@@ -29,6 +29,11 @@ async fn main() -> io::Result<()> {
             match agent_role {
                 AgentRole::Coder => {
                     let coder_completed = matches!(&agent_event, AgentEvent::Completed);
+
+                    if matches!(&agent_event, AgentEvent::Failed(_)) {
+                        app.workflow_status = WorkflowStatus::NeedsManualAttention;
+                    }
+
                     app.coder.handle_event(agent_event);
 
                     if coder_completed && !matches!(app.reviewer.state, AgentState::Running) {
@@ -39,7 +44,12 @@ async fn main() -> io::Result<()> {
                         let Some(previous_input) = app.previous_input.as_deref() else {
                             continue;
                         };
-                        let baseline_git_commit = app.baseline_git_commit.as_deref().unwrap_or("Automatic review skipped: no Git starting commit.");
+                        let Some(baseline_git_commit) = app.baseline_git_commit.as_deref() else {
+                            app.reviewer.handle_event(AgentEvent::Activity("Automatic review skipped: No Git starting commit.".to_string()));
+                            app.workflow_status = WorkflowStatus::NeedsManualAttention;
+                            continue;
+                        };
+
                         review_prompt = format!("
                             {REVIEW_INSTRUCTIONS}\n\n
                             Original coding request: {previous_input}\n\n
@@ -62,6 +72,8 @@ async fn main() -> io::Result<()> {
 
                     AgentEvent::Completed => {
                         app.reviewer.handle_event(AgentEvent::Completed);
+                        app.workflow_status = WorkflowStatus::NeedsManualAttention;
+
                         let Some(latest_review) = &app.latest_review else {
                             continue;
                         };
@@ -71,8 +83,6 @@ async fn main() -> io::Result<()> {
 
                         let verdict = review_json.verdict;
                         let findings = review_json.findings.trim();
-
-                        app.workflow_status = WorkflowStatus::NeedsManualAttention;
 
                         if verdict == "PASS" {
                             app.workflow_status = WorkflowStatus::Passed;
@@ -103,6 +113,11 @@ async fn main() -> io::Result<()> {
                         {
                             app.workflow_status = WorkflowStatus::ChangesStillRequested;
                         }
+                    }
+
+                    event @ AgentEvent::Failed(_) => {
+                        app.reviewer.handle_event(event);
+                        app.workflow_status = WorkflowStatus::NeedsManualAttention;
                     }
 
                     event => {

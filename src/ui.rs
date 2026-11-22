@@ -3,10 +3,13 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Margin, Rect},
     style::{Color, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Block, Paragraph, Wrap},
 };
 
-use crate::event::{AgentSession, AgentState, App};
+use crate::{
+    consts::MAX_REVIEW_COUNT,
+    event::{AgentSession, AgentState, App, WorkflowStatus},
+};
 
 pub fn draw(frame: &mut Frame, app: &App) {
     const FULL_TOP_SPACING: u16 = 3;
@@ -117,11 +120,35 @@ pub fn draw(frame: &mut Frame, app: &App) {
         frame.set_cursor_position((prompt_area.x + cursor_column, prompt_area.y + cursor_row));
     }
 
-    // Footer
-    let footer =
-        Paragraph::new(" Press 'esc' to quit ").block(Block::default().borders(Borders::ALL));
+    frame.render_widget(workflow_footer(app, footer_area.width), footer_area);
+}
 
-    frame.render_widget(footer, footer_area);
+fn workflow_footer(app: &App, width: u16) -> Paragraph<'static> {
+    let (status, color) = match app.workflow_status {
+        WorkflowStatus::Idle => ("Idle", Color::Gray),
+        WorkflowStatus::Running => ("Running", Color::Yellow),
+        WorkflowStatus::Revising => ("Revising", Color::Yellow),
+        WorkflowStatus::Passed => ("Passed", Color::Green),
+        WorkflowStatus::ChangesStillRequested => ("Changes still requested", Color::Yellow),
+        WorkflowStatus::NeedsManualAttention => ("Needs manual attention", Color::Red),
+    };
+
+    let count = format!("{}/{MAX_REVIEW_COUNT}", app.revision_count);
+    let detail = format!(" · {count} automatic revisions used");
+    let line = Line::from(vec![
+        Span::styled(status, Style::default().fg(color)),
+        if status.len() + detail.chars().count() <= usize::from(width.saturating_sub(2)) {
+            Span::raw(detail)
+        } else {
+            Span::raw(format!(" · {count}"))
+        },
+    ]);
+
+    Paragraph::new(line).block(
+        Block::bordered()
+            .title(" Workflow ")
+            .title_bottom(Line::from(" Esc to quit ").right_aligned()),
+    )
 }
 
 fn wrap_line(input: &str, width: u16) -> (Vec<String>, u16) {
