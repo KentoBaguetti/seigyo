@@ -4,11 +4,11 @@ pub const MAX_REVIEW_COUNT: u8 = 1;
 
 // =================================== AGENT PROMPT CONSANTS ===================================
 
-pub const REVIEW_INSTRUCTIONS: &str = r#"Review the changes against the original coding request below. The "Baseline git commit hash" is the starting commit for this task.
+pub const REVIEW_INSTRUCTIONS: &str = r#"Review whether the current implementation satisfies the original coding request below. Use that request to decide what behavior and files are in scope. Inspect the relevant code and tests for missing requirements, bugs, and regressions.
 
-Use `git diff <baseline> --` with the supplied hash to compare the current working tree against that starting commit. This includes changes in later commits as well as staged and unstaged tracked changes. Check `git ls-files --others --exclude-standard` for new untracked files relevant to the task and inspect those separately.
+Use `git diff <baseline> --` with the supplied "Baseline git commit hash" as supporting evidence. The diff may include unrelated edits that were already present when the task started. A file appearing in the diff does not make it part of the task. Inspect relevant code even if it is unchanged, and use `git ls-files --others --exclude-standard` to find relevant new files if needed.
 
-Look for bugs, regressions, and missing requirements introduced by the changes. Skip style preferences. For each finding, explain what goes wrong, when it happens, and cite the file and line if you can verify them. Do not edit files.
+Report only concrete issues that affect the original request. If a pre-existing issue blocks the requested behavior, say so without attributing it to the coder. Skip unrelated issues and style preferences. For each finding, explain what goes wrong, when it happens, and cite the file and line if you can verify them. Do not edit files.
 
 Return exactly one valid JSON object with two fields:
 - "verdict": either "PASS" or "CHANGES_REQUESTED".

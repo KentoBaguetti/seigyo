@@ -180,7 +180,7 @@ async fn main() -> io::Result<()> {
 
                                 // Temporary branch. Manually let the user start a review
                                 KeyCode::F(2) => {
-                                    if matches!(app.reviewer.state, AgentState::Running) {
+                                    if matches!(app.reviewer.state, AgentState::Running) || matches!(app.coder.state, AgentState::Running) {
                                         continue;
                                     }
 
@@ -201,7 +201,9 @@ async fn main() -> io::Result<()> {
                                         continue;
                                     }
 
-                                    let thread_id = app.coder.thread_id.clone();
+                                    let Some(thread_id) = app.coder.thread_id.clone() else {
+                                        continue;
+                                    };
                                     let agent_tx = tx.clone();
 
                                     let Some(review_message) = app.latest_review.take() else {
@@ -210,9 +212,10 @@ async fn main() -> io::Result<()> {
 
                                     let prompt = format!("Address the applicable findings from this review:\n\n{review_message}");
                                     app.coder.state = AgentState::Running;
+                                    app.workflow_status = WorkflowStatus::Revising;
 
                                     tokio::spawn(async move {
-                                        agent::run_agent(agent_tx, AgentRole::Coder, prompt, thread_id).await;
+                                        agent::run_agent(agent_tx, AgentRole::Coder, prompt, Some(thread_id)).await;
                                     });
                                 }
 
